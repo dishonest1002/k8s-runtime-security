@@ -1,0 +1,34 @@
+- macro: container
+  condition: container.id != "host"
+
+- macro: spawned_process
+  condition: evt.type = execve and evt.dir=<
+
+- rule: Detect Reverse Shell Patterns
+  desc: Detects potential reverse shell spawning activities inside containers.
+  condition: >
+    spawned_process and container and
+    (proc.name in (bash, sh, zsh, python, python3, nc, netcat, perl)) and
+    (proc.args contains "-e" or proc.args contains "-i" or proc.args contains "connect" or proc.cmdline contains "/dev/tcp")
+  output: "Alert: Potential Reverse Shell Spawned (user=%user.name proc=%proc.cmdline container=%container.id image=%container.image.repository)"
+  priority: CRITICAL
+  tags: [container, network, mitre_execution]
+
+- rule: Unauthorized Sensitive File Read
+  desc: Detects attempts to read sensitive system files like /etc/shadow.
+  condition: >
+    open_read and container and
+    (fd.name glob "/etc/shadow*" or fd.name glob "/etc/sudoers*") and
+    not proc.name in (passwd, useradd, groupadd)
+  output: "Alert: Unauthorized sensitive file read attempt (user=%user.name proc=%proc.name file=%fd.name container=%container.id)"
+  priority: WARNING
+  tags: [container, security, mitre_credential_access]
+
+- rule: Container Drift - New Executable Created
+  desc: Detects file modifications resulting in a new executable inside a running container.
+  condition: >
+    evt.type = close and fappend=false and evt.dir=< and fields.fd.name is not null and
+    (fd.name glob "*/bin/*" or fd.name glob "*/sbin/*") and container
+  output: "Alert: File drift detected - executable written or modified (user=%user.name file=%fd.name container=%container.id)"
+  priority: ERROR
+  tags: [container, integrity, mitre_persistence]
